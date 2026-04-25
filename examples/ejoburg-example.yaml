@@ -1,0 +1,485 @@
+views:
+  - theme: Backend-selected
+    title: e-Joburg
+    path: e-joburg
+    badges: []
+    cards:
+      - type: custom:mushroom-chips-card
+        chips:
+          - type: back
+        card_mod:
+          style: |
+            ha-card { background: none !important; }
+
+      - type: custom:mushroom-template-card
+        entity: sensor.e_joburg_latest_statement_amount
+        primary: >-
+          {% set fin = state_attr('sensor.e_joburg_statement_row_count', 'financial') or {} %}
+          {% set ov = state_attr('sensor.e_joburg_statement_row_count', 'overview') or {} %}
+          {% set amount = fin.get('display_amount_due') if fin.get('display_amount_due') is number else none %}
+          {% set out = ov.get('outstanding_balance') if ov.get('outstanding_balance') is number else none %}
+          {% if amount is number and (amount | float(0) | abs) < 0.004 and out is number and (out | float(0) | abs) > 0.004 %}
+            {% set amount = out %}
+          {% elif amount is not number and out is number %}
+            {% set amount = out %}
+          {% endif %}
+          {% set amount = amount | float(0) %}
+          {% if amount < 0 %}
+            💰 Credit Balance · R{{ '%.2f' | format(amount) }}
+          {% elif amount == 0 %}
+            ✅ Account Settled
+          {% else %}
+            📄 Amount Due · R{{ '%.2f' | format(amount) }}
+          {% endif %}
+        secondary: >-
+          {% set acct_entity = 'sensor.e_joburg_account_number_detected' if states('sensor.e_joburg_account_number_detected') not in ['unknown','unavailable'] else 'sensor.e_joburg_detected_account_number' %}
+          {% set acct = states(acct_entity) %}
+          {% set acct_display = acct if acct not in ['unknown','unavailable','none','None',''] else 'n/a' %}
+          {% set ov = state_attr('sensor.e_joburg_statement_row_count', 'overview') or {} %}
+          {% set latest = state_attr('sensor.e_joburg_statement_row_count', 'latest_statement') or {} %}
+          {% set parsed = latest.get('parsed', {}) if latest is mapping else {} %}
+          {% set stmt_date = parsed.get('statement_date') if parsed is mapping and parsed.get('statement_date') not in [none, ''] else ov.get('statement_date', 'n/a') %}
+          {% set due_date = parsed.get('due_date') if parsed is mapping and parsed.get('due_date') not in [none, ''] else ov.get('due_date', 'n/a') %}
+          Account {{ acct_display }} · Statement {{ stmt_date }} · Due {{ due_date }}
+        multiline_secondary: true
+        icon: >-
+          {% set fin = state_attr('sensor.e_joburg_statement_row_count', 'financial') or {} %}
+          {% set ov = state_attr('sensor.e_joburg_statement_row_count', 'overview') or {} %}
+          {% set amount = fin.get('display_amount_due') if fin.get('display_amount_due') is number else none %}
+          {% set out = ov.get('outstanding_balance') if ov.get('outstanding_balance') is number else none %}
+          {% if amount is number and (amount | float(0) | abs) < 0.004 and out is number and (out | float(0) | abs) > 0.004 %}
+            {% set amount = out %}
+          {% elif amount is not number and out is number %}
+            {% set amount = out %}
+          {% endif %}
+          {% set amount = amount | float(0) %}
+          {% if amount < 0 %}mdi:cash-plus
+          {% elif amount == 0 %}mdi:check-circle
+          {% else %}mdi:cash-clock
+          {% endif %}
+        color: >-
+          {% set fin = state_attr('sensor.e_joburg_statement_row_count', 'financial') or {} %}
+          {% set ov = state_attr('sensor.e_joburg_statement_row_count', 'overview') or {} %}
+          {% set amount = fin.get('display_amount_due') if fin.get('display_amount_due') is number else none %}
+          {% set out = ov.get('outstanding_balance') if ov.get('outstanding_balance') is number else none %}
+          {% if amount is number and (amount | float(0) | abs) < 0.004 and out is number and (out | float(0) | abs) > 0.004 %}
+            {% set amount = out %}
+          {% elif amount is not number and out is number %}
+            {% set amount = out %}
+          {% endif %}
+          {% set amount = amount | float(0) %}
+          {% if amount < 0 %}green
+          {% elif amount == 0 %}cyan
+          {% else %}red
+          {% endif %}
+        badge_icon: mdi:office-building
+        badge_color: >-
+          {% set fin = state_attr('sensor.e_joburg_statement_row_count', 'financial') or {} %}
+          {% set ov = state_attr('sensor.e_joburg_statement_row_count', 'overview') or {} %}
+          {% set amount = fin.get('display_amount_due') if fin.get('display_amount_due') is number else none %}
+          {% set out = ov.get('outstanding_balance') if ov.get('outstanding_balance') is number else none %}
+          {% if amount is number and (amount | float(0) | abs) < 0.004 and out is number and (out | float(0) | abs) > 0.004 %}
+            {% set amount = out %}
+          {% elif amount is not number and out is number %}
+            {% set amount = out %}
+          {% endif %}
+          {% set amount = amount | float(0) %}
+          {% if amount < 0 %}green
+          {% elif amount == 0 %}green
+          {% else %}red
+          {% endif %}
+        tap_action:
+          action: more-info
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(0,0,0,0.35) !important;
+              backdrop-filter: blur(8px);
+              border: 1px solid rgba(255,255,255,0.06);
+            }
+
+      - type: horizontal-stack
+        cards:
+          - type: custom:mushroom-template-card
+            primary: Refresh
+            secondary: Sync latest from portal
+            icon: mdi:refresh
+            entity: button.e_joburg_refresh
+            color: cyan
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.e_joburg_refresh
+              confirmation:
+                text: Refresh e-Joburg data now?
+            card_mod:
+              style: |
+                ha-card {
+                  background: rgba(0,0,0,0.35) !important;
+                  backdrop-filter: blur(8px);
+                  border: 1px solid rgba(255,255,255,0.06);
+                }
+
+          - type: custom:mushroom-template-card
+            primary: Open Latest Statement
+            secondary: Open latest cached PDF
+            icon: mdi:file-pdf-box
+            entity: button.e_joburg_open_latest_statement
+            color: green
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.e_joburg_open_latest_statement
+            card_mod:
+              style: |
+                ha-card {
+                  background: rgba(0,0,0,0.35) !important;
+                  backdrop-filter: blur(8px);
+                  border: 1px solid rgba(255,255,255,0.06);
+                }
+
+      - type: custom:mushroom-template-card
+        primary: Statement PDF Status
+        secondary: >-
+          {% set pdf = states('sensor.e_joburg_latest_statement_pdf_url') %}
+          {% if pdf not in ['unknown', 'unavailable', 'None', ''] %}
+            Latest statement is cached and ready.
+          {% else %}
+            No cached statement yet. Press Refresh.
+          {% endif %}
+        icon: >-
+          {% set pdf = states('sensor.e_joburg_latest_statement_pdf_url') %}
+          {% if pdf not in ['unknown', 'unavailable', 'None', ''] %}mdi:file-check{% else %}mdi:file-alert-outline{% endif %}
+        color: >-
+          {% set pdf = states('sensor.e_joburg_latest_statement_pdf_url') %}
+          {% if pdf not in ['unknown', 'unavailable', 'None', ''] %}green{% else %}amber{% endif %}
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(0,0,0,0.35) !important;
+              backdrop-filter: blur(8px);
+              border: 1px solid rgba(255,255,255,0.06);
+              border-left: 3px solid rgba(76,175,80,0.8);
+            }
+
+      - type: markdown
+        content: |
+          {% set data = state_attr('sensor.e_joburg_statement_row_count', 'statement_history') or {} %}
+          {% set rows = data.get('rows', []) %}
+          ## Invoices ({{ rows | length }})
+
+          {% if rows | length == 0 %}
+          <p><em>No statement rows loaded yet. Press Refresh.</em></p>
+          {% else %}
+          <table width="100%" border=0>
+            <tbody>
+            <tr>
+              <td align="left"><b>#</b></td>
+              <td align="left"><b>Date (YYYY/MM/DD)</b></td>
+              <td align="right"><b>Amount</b></td>
+              <td align="center"><b>Local PDF</b></td>
+            </tr>
+            {% for r in rows[:30] %}
+            <tr>
+              <td align="left">{{ r.index | default(loop.index) }}</td>
+              <td align="left">{{ r.statement_date if r.statement_date not in [none, ''] else '—' }}</td>
+              <td align="right">{% set amt = r.bill_amount | float(0) %}{% if amt < 0 %}<font color="#4CAF50"><b>R{{ '%.2f' | format(amt) }}</b></font>{% elif amt == 0 %}<font color="#999999"><b>R0.00</b></font>{% else %}<font color="#EF5350"><b>R{{ '%.2f' | format(amt) }}</b></font>{% endif %}</td>
+              <td align="center">{% if r.download_available | default(false) and r.local_pdf_url %}<a href="{{ r.local_pdf_url }}" target="_blank" rel="noopener" download>View</a>{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        card_mod:
+          style:
+            ha-markdown$: |
+              a { color: #ffffff !important; text-decoration: none !important; font-weight: 600; }
+              a:hover { text-decoration: underline !important; color: #ffffff !important; }
+              table { width: 100%; border-collapse: collapse; }
+              table tr { border-bottom: 1px solid rgba(255,255,255,0.06); }
+              table tr:nth-child(odd):not(:first-child) { background: rgba(255,255,255,0.015); }
+              table tr:hover:not(:first-child) { background: rgba(79,195,247,0.08); }
+              table tr:first-child { border-bottom: 2px solid rgba(255,255,255,0.15); }
+              table td { padding: 8px 10px; font-size: 0.9em; }
+              table tr:first-child td { color: rgba(255,255,255,0.6); font-size: 0.85em; font-weight: 600; }
+            .: |
+              ha-card {
+                background: rgba(0,0,0,0.35) !important;
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-left: 3px solid #2196F3;
+              }
+
+      - type: markdown
+        content: |
+          ## Latest Statement Details
+
+          {% set l = state_attr('sensor.e_joburg_statement_row_count', 'latest_statement') or {} %}
+          {% set parsed = l.get('parsed', {}) if l is mapping else {} %}
+          {% set pdf = l.get('local_pdf_url') if l is mapping else none %}
+          {% set acct = parsed.get('account_number') if parsed is mapping else none %}
+          {% set amt = parsed.get('amount_due') if parsed is mapping else none %}
+          {% if amt is not number %}{% set amt = parsed.get('amount_guess') if parsed is mapping else none %}{% endif %}
+          {% set due_date = parsed.get('due_date') if parsed is mapping else none %}
+          <table width="100%" border=0>
+            <tbody>
+            <tr>
+              <td align="left"><b>Field</b></td>
+              <td align="left"><b>Value</b></td>
+            </tr>
+            <tr>
+              <td align="left">Detected Account</td>
+              <td align="left">{{ acct if acct not in [none, '', 'unknown', 'unavailable'] else '—' }}</td>
+            </tr>
+            <tr>
+              <td align="left">Total Due</td>
+              <td align="left">{% if amt is number %}{% if amt < 0 %}<font color="#4CAF50"><b>R{{ '%.2f' | format(amt) }}</b></font>{% elif amt == 0 %}<font color="#999999"><b>R0.00</b></font>{% else %}<font color="#EF5350"><b>R{{ '%.2f' | format(amt) }}</b></font>{% endif %}{% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+              <td align="left">Due Date (YYYY/MM/DD)</td>
+              <td align="left">{{ due_date if due_date not in [none, ''] else '—' }}</td>
+            </tr>
+            <tr>
+              <td align="left">Statement Date (YYYY/MM/DD)</td>
+              <td align="left">{{ parsed.get('statement_date') if parsed is mapping and parsed.get('statement_date') not in [none, ''] else '—' }}</td>
+            </tr>
+            <tr>
+              <td align="left">Local PDF</td>
+              <td align="left">{% if pdf not in [none, '', 'unknown', 'unavailable'] %}<a href="{{ pdf }}" target="_blank" rel="noopener" download>View</a>{% else %}—{% endif %}</td>
+            </tr>
+            </tbody>
+          </table>
+        card_mod:
+          style:
+            ha-markdown$: |
+              a { color: #ffffff !important; text-decoration: none !important; font-weight: 600; }
+              a:hover { text-decoration: underline !important; color: #ffffff !important; }
+              table { width: 100%; border-collapse: collapse; }
+              table tr { border-bottom: 1px solid rgba(255,255,255,0.06); }
+              table tr:nth-child(odd):not(:first-child) { background: rgba(255,255,255,0.015); }
+              table tr:hover:not(:first-child) { background: rgba(255,152,0,0.08); }
+              table tr:first-child { border-bottom: 2px solid rgba(255,255,255,0.15); }
+              table td { padding: 8px 10px; font-size: 0.9em; }
+              table tr:first-child td { color: rgba(255,255,255,0.6); font-size: 0.85em; font-weight: 600; }
+            .: |
+              ha-card {
+                background: rgba(0,0,0,0.35) !important;
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-left: 3px solid #FF9800;
+              }
+
+  - theme: Backend-selected
+    title: e-Joburg Tariffs
+    path: e-joburg-tariffs
+    type: sidebar
+    badges: []
+    cards:
+      - type: custom:mushroom-chips-card
+        chips:
+          - type: back
+        card_mod:
+          style: |
+            ha-card { background: none !important; }
+
+      - type: custom:mushroom-template-card
+        primary: CoJ Prepaid Electricity Tariffs
+        secondary: >-
+          {% set t = state_attr('sensor.e_joburg_tariffs_status', 'tariffs') or {} %}
+          FY {{ t.get('financial_year', 'n/a') }} · Effective {{ t.get('effective_date', 'n/a') }} · VAT {{ t.get('vat_rate_percent', 15) }}%
+        icon: mdi:lightning-bolt-circle
+        entity: sensor.e_joburg_tariffs_status
+        color: cyan
+        multiline_secondary: true
+        card_mod:
+          style: |
+            ha-card {
+              background: rgba(0,0,0,0.35) !important;
+              backdrop-filter: blur(8px);
+              border: 1px solid rgba(255,255,255,0.06);
+            }
+
+      - type: horizontal-stack
+        cards:
+          - type: custom:mushroom-template-card
+            primary: Refresh Tariffs
+            secondary: Manual update from Joburg tariffs page
+            icon: mdi:refresh
+            entity: button.e_joburg_refresh_tariffs
+            color: cyan
+            tap_action:
+              action: call-service
+              service: button.press
+              target:
+                entity_id: button.e_joburg_refresh_tariffs
+              confirmation:
+                text: Refresh official tariffs now?
+            card_mod:
+              style: |
+                ha-card {
+                  background: rgba(0,0,0,0.35) !important;
+                  backdrop-filter: blur(8px);
+                  border: 1px solid rgba(255,255,255,0.06);
+                }
+
+          - type: custom:mushroom-template-card
+            primary: Tariff Status
+            secondary: >-
+              {% set t = state_attr('sensor.e_joburg_tariffs_status', 'tariffs') or {} %}
+              {{ states('sensor.e_joburg_tariffs_status') }} · {{ t.get('row_count', 0) }} rows · CSV {% if t.get('local_csv_url') %}ready{% else %}n/a{% endif %}
+            icon: mdi:database-check
+            entity: sensor.e_joburg_tariffs_status
+            color: >-
+              {% set st = states('sensor.e_joburg_tariffs_status') %}
+              {% if st == 'ready' %}green{% elif st == 'unavailable' %}amber{% else %}cyan{% endif %}
+            card_mod:
+              style: |
+                ha-card {
+                  background: rgba(0,0,0,0.35) !important;
+                  backdrop-filter: blur(8px);
+                  border: 1px solid rgba(255,255,255,0.06);
+                }
+
+      - type: markdown
+        content: >-
+          ## Prepaid Tariff Blocks (ex VAT and incl VAT)
+
+          {% set t = state_attr('sensor.e_joburg_tariffs_status', 'tariffs') or {} %}
+          {% set rows = t.get('segments', {}).get('prepaid', {}).get('rows', []) if t is mapping else [] %}
+          {% if rows | length == 0 %}
+          <p><em>No tariff rows available yet. Use Refresh Tariffs.</em></p>
+          {% else %}
+          <p><em>Financial year {{ t.get('financial_year', 'n/a') }} · Effective {{ t.get('effective_date', 'n/a') }} · VAT {{ t.get('vat_rate_percent', 15) }}%</em></p>
+          <table width="100%" border=0>
+            <tbody>
+            <tr>
+              <td align="left"><b>Variant</b></td>
+              <td align="center"><b>Block</b></td>
+              <td align="left"><b>Usage (kWh)</b></td>
+              <td align="right"><b>Rate ex VAT (R/kWh)</b></td>
+              <td align="right"><b>Rate incl VAT (R/kWh)</b></td>
+              <td align="right"><b>Service incl VAT (R/m)</b></td>
+              <td align="right"><b>Capacity incl VAT (R/m)</b></td>
+            </tr>
+            {% for r in rows %}
+            {% set usage = (r.usage_kwh_from | string) ~ ' - ' ~ ((r.usage_kwh_to | string) if r.usage_kwh_to not in [none, ''] else 'above') %}
+            <tr>
+              <td align="left">{{ r.tariff_variant }}</td>
+              <td align="center">{{ r.block }}</td>
+              <td align="left">{{ usage }}</td>
+              <td align="right">R{{ '%.4f' | format(r.rate_r_per_kwh | float(0)) }}</td>
+              <td align="right"><font color="#4FC3F7"><b>R{{ '%.4f' | format(r.rate_r_per_kwh_incl_vat | float(0)) }}</b></font></td>
+              <td align="right">R{{ '%.2f' | format(r.service_charge_r_per_month_incl_vat | float(0)) }}</td>
+              <td align="right">R{{ '%.2f' | format(r.capacity_charge_r_per_month_incl_vat | float(0)) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        card_mod:
+          style:
+            ha-markdown$: |
+              table { width: 100%; border-collapse: collapse; }
+              table tr { border-bottom: 1px solid rgba(255,255,255,0.06); }
+              table tr:nth-child(odd):not(:first-child) { background: rgba(255,255,255,0.015); }
+              table tr:hover:not(:first-child) { background: rgba(0,188,212,0.08); }
+              table tr:first-child { border-bottom: 2px solid rgba(255,255,255,0.15); }
+              table td { padding: 8px 10px; font-size: 0.9em; }
+              table tr:first-child td { color: rgba(255,255,255,0.6); font-size: 0.85em; font-weight: 600; }
+            .: |
+              ha-card {
+                background: rgba(0,0,0,0.35) !important;
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-left: 3px solid #00BCD4;
+              }
+
+      - type: markdown
+        content: >-
+          ## Sources
+
+          {% set t = state_attr('sensor.e_joburg_tariffs_status', 'tariffs') or {} %}
+          <ul>
+            <li>Approved page: {% if t.get('source_page_url') %}<a href="{{ t.get('source_page_url') }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</li>
+            <li>Booklet PDF: {% if t.get('booklet_pdf_url') %}<a href="{{ t.get('booklet_pdf_url') }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</li>
+            <li>Consolidated PDF: {% if t.get('consolidated_pdf_url') %}<a href="{{ t.get('consolidated_pdf_url') }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</li>
+            <li>Annexure PDF (postpaid): {% if t.get('annexure_pdf_url') %}<a href="{{ t.get('annexure_pdf_url') }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</li>
+            <li>Local CSV: {% if t.get('local_csv_url') %}<a href="{{ t.get('local_csv_url') }}" target="_blank" rel="noopener" download>Download</a>{% else %}—{% endif %}</li>
+          </ul>
+        card_mod:
+          style:
+            ha-markdown$: |
+              a { color: #ffffff !important; text-decoration: none !important; font-weight: 600; }
+              a:hover { text-decoration: underline !important; color: #ffffff !important; }
+            .: |
+              ha-card {
+                background: rgba(0,0,0,0.35) !important;
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-left: 3px solid #8BC34A;
+              }
+
+      - type: markdown
+        content: >-
+          ## Postpaid / Conventional Tariffs
+
+          {% set t = state_attr('sensor.e_joburg_tariffs_status', 'tariffs') or {} %}
+          {% set seg = t.get('segments', {}).get('postpaid', {}) if t is mapping else {} %}
+          {% set rows = seg.get('rows', []) if seg is mapping else [] %}
+          <p><b>Status:</b> {{ seg.get('status', 'unavailable') }}</p>
+          <p>{{ seg.get('note', 'Postpaid section not available yet.') }}</p>
+          {% if rows | length == 0 %}
+          <p><em>No postpaid rows available yet. Use Refresh Tariffs.</em></p>
+          {% else %}
+          <table width="100%" border=0>
+            <tbody>
+            <tr>
+              <td align="left"><b>Variant</b></td>
+              <td align="left"><b>Structure</b></td>
+              <td align="left"><b>Phase</b></td>
+              <td align="center"><b>Block</b></td>
+              <td align="left"><b>Usage</b></td>
+              <td align="left"><b>Season/TOU</b></td>
+              <td align="right"><b>Rate ex VAT (R/kWh)</b></td>
+              <td align="right"><b>Rate incl VAT (R/kWh)</b></td>
+              <td align="right"><b>Service incl VAT (R/m)</b></td>
+              <td align="right"><b>Capacity incl VAT (R/m)</b></td>
+            </tr>
+            {% for r in rows %}
+            {% set usage = (r.usage_kwh_from | string) ~ ' - ' ~ ((r.usage_kwh_to | string) if r.usage_kwh_to not in [none, ''] else 'above') if r.usage_kwh_from not in [none, ''] else '—' %}
+            {% set season_tou = ((r.season | default('') | string) ~ ' ' ~ (r.tou_period | default('') | string)).strip() %}
+            <tr>
+              <td align="left">{{ r.tariff_variant }}</td>
+              <td align="left">{{ r.tariff_structure | default('—') }}</td>
+              <td align="left">{{ r.meter_phase | default('—') }}{% if r.breaker_amp not in [none, ''] %} · {{ r.breaker_amp }}A{% endif %}</td>
+              <td align="center">{{ r.block }}</td>
+              <td align="left">{{ usage }}</td>
+              <td align="left">{{ season_tou if season_tou not in ['', none, 'None None'] else '—' }}</td>
+              <td align="right">R{{ '%.4f' | format(r.rate_r_per_kwh | float(0)) }}</td>
+              <td align="right"><font color="#4FC3F7"><b>R{{ '%.4f' | format(r.rate_r_per_kwh_incl_vat | float(0)) }}</b></font></td>
+              <td align="right">R{{ '%.2f' | format(r.service_charge_r_per_month_incl_vat | float(0)) }}</td>
+              <td align="right">R{{ '%.2f' | format(r.capacity_charge_r_per_month_incl_vat | float(0)) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        card_mod:
+          style:
+            ha-markdown$: |
+              table { width: 100%; border-collapse: collapse; }
+              table tr { border-bottom: 1px solid rgba(255,255,255,0.06); }
+              table tr:nth-child(odd):not(:first-child) { background: rgba(255,255,255,0.015); }
+              table tr:hover:not(:first-child) { background: rgba(156,39,176,0.08); }
+              table tr:first-child { border-bottom: 2px solid rgba(255,255,255,0.15); }
+              table td { padding: 8px 10px; font-size: 0.9em; }
+              table tr:first-child td { color: rgba(255,255,255,0.6); font-size: 0.85em; font-weight: 600; }
+            .: |
+              ha-card {
+                background: rgba(0,0,0,0.35) !important;
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-left: 3px solid #9C27B0;
+              }

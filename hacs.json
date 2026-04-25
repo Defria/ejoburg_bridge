@@ -1,0 +1,9 @@
+{
+  "name": "e-Joburg Bridge",
+  "country": "ZA",
+  "homeassistant": "2025.1.0",
+  "content_in_root": false,
+  "filename": "custom_components/ejoburg_bridge/manifest.json",
+  "render_readme": true,
+  "zip_release": false
+}

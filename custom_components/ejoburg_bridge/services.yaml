@@ -1,0 +1,21 @@
+refresh:
+  name: Refresh
+  description: Force an immediate data refresh from e-Joburg.
+  fields:
+    entry_id:
+      name: Config entry id
+      description: Optional e-Joburg Bridge config entry id. If omitted, refresh all entries.
+      required: false
+      selector:
+        text:
+
+refresh_tariffs:
+  name: Refresh Tariffs
+  description: Force an immediate tariffs refresh from the official Joburg tariffs page.
+  fields:
+    entry_id:
+      name: Config entry id
+      description: Optional e-Joburg Bridge config entry id. If omitted, refresh all entries.
+      required: false
+      selector:
+        text:

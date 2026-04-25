@@ -1,0 +1,12 @@
+{
+  "domain": "ejoburg_bridge",
+  "name": "e-Joburg Bridge",
+  "codeowners": ["@defria"],
+  "config_flow": true,
+  "documentation": "https://github.com/defria/ejoburg-bridge",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "loggers": ["custom_components.ejoburg_bridge"],
+  "requirements": ["pypdf>=4.3.1"],
+  "version": "0.1.0"
+}
