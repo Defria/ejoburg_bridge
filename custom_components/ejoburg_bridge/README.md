@@ -91,6 +91,8 @@ Optional field:
 
 Special thanks to **Christoff Jacobs, PhD** ([@toffiecj](https://github.com/toffiecj) · [LinkedIn](https://www.linkedin.com/in/christoff-jacobs-phd-ab22916/)) for his contribution and testing — without him, this project would not have got off the ground.
 
+Thanks also to **Justin Porteous** ([@jgporteous](https://github.com/jgporteous)) for testing the alpha release.
+
 ## Disclaimer
 
 This integration is a hobby project and is provided as-is.
