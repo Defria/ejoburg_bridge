@@ -118,6 +118,10 @@ Optional field:
 - Tariffs dashboard view is available in `examples/ejoburg-example.yaml` and local dashboard at `ejoburg.yaml`.
 - Postpaid/conventional tariffs are parsed from the approved annexure (`ITEM_03C_ANNEXURE.pdf`) and shown in a dedicated postpaid table.
 
+## Acknowledgements
+
+Special thanks to **Christoff Jacobs, PhD** ([@toffiecj](https://github.com/toffiecj) · [LinkedIn](https://www.linkedin.com/in/christoff-jacobs-phd-ab22916/)) for his contribution and testing — without him, this project would not have got off the ground.
+
 ## Legal Notice
 
 - This is an independent hobby project for educational/personal use.
