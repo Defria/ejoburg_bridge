@@ -122,7 +122,7 @@ Optional field:
 
 Special thanks to **Christoff Jacobs, PhD** ([@toffiecj](https://github.com/toffiecj) · [LinkedIn](https://www.linkedin.com/in/christoff-jacobs-phd-ab22916/)) for his contribution and testing — without him, this project would not have got off the ground.
 
-Thanks also to **Justin Porteous** ([@jgporteous](https://github.com/jgporteous)) for testing the alpha release.
+Thanks also to **Justin Porteous** ([@jgporteous](https://github.com/jgporteous) · [LinkedIn](https://www.linkedin.com/in/justin-porteous-90b2b615/)) for testing the alpha release.
 
 ## Legal Notice
 
