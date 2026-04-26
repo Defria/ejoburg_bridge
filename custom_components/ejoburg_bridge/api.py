@@ -1175,6 +1175,7 @@ class EJoburgApi:
             "rows": rows,
             "form_fields": merged_fields,
             "account_number_selected": selected_account,
+            "panel_html": panel_html,
         }
 
     def download_statement_pdf(

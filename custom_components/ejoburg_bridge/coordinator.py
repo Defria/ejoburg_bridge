@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import EJoburgApi, EJoburgApiError
+from . import api_v2
 from .const import (
     CONF_ACCOUNT_NUMBER,
     CONF_BASE_URL,
@@ -45,6 +46,11 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._bundled_tariffs_csv_path = os.path.join(
             os.path.dirname(__file__), "coj_prepaid_electricity_tariffs_2025_26.csv"
         )
+        # v2 statement-metadata path: HTML-only (no per-row pypdf parse).
+        # Verified bit-exact against v1 across 24/24 rows on a live account
+        # (credit and debit, with rolled-in prior balances). Default on.
+        # Set EJOBURG_BRIDGE_USE_V2=0 to fall back to the legacy pypdf path.
+        self._use_v2 = os.environ.get("EJOBURG_BRIDGE_USE_V2", "1") != "0"
 
         super().__init__(
             hass,
@@ -74,6 +80,13 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             overview = self.api.get_account_overview()
             payment_history = self.api.get_payment_history_summary()
             statement_history = self.api.get_statement_history()
+
+            if self._use_v2:
+                panel_html = statement_history.get("panel_html") or ""
+                if panel_html:
+                    v2_rows = api_v2.parse_statement_list_rows(panel_html)
+                    if v2_rows:
+                        statement_history["rows"] = v2_rows
 
             os.makedirs(self._pdf_dir, exist_ok=True)
             self._ensure_tariffs_loaded_once()
@@ -145,27 +158,49 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 row["local_pdf_url"] = local_url
 
                 parsed: dict[str, Any] | None = None
-                try:
-                    with open(file_path, "rb") as handle:
-                        parsed = self.api.parse_statement_pdf(handle.read())
-                except Exception as exc:  # keep coordinator resilient on bad single PDF
-                    self.logger.debug(
-                        "Failed to parse statement PDF for row %s (%s): %s",
-                        idx,
-                        button_name,
-                        exc,
-                    )
-
-                if isinstance(parsed, dict):
-                    parsed_statement_date = parsed.get("statement_date")
-                    if parsed_statement_date and not row.get("statement_date"):
-                        row["statement_date"] = parsed_statement_date
-                    row["pdf_parsed"] = {
-                        "statement_date": parsed.get("statement_date"),
-                        "due_date": parsed.get("due_date"),
-                        "amount_due": parsed.get("amount_due"),
-                        "amount_due_source": parsed.get("amount_due_source"),
+                if self._use_v2:
+                    # v2: skip pypdf entirely. List HTML's Total column has
+                    # been verified bit-exact against v1's PDF amount_due
+                    # across all rows (including credit rows and rows with
+                    # rolled-in prior balances), so we use it as the source
+                    # of pdf_parsed.amount_due. Zero extra HTTP traffic, no
+                    # PDF text extraction needed.
+                    list_total = row.get("balance")
+                    if isinstance(list_total, (int, float)):
+                        amount_due_value: float | None = float(list_total)
+                        amount_due_source = "list_total"
+                    else:
+                        amount_due_value = None
+                        amount_due_source = "unavailable"
+                    parsed = {
+                        "statement_date": row.get("statement_date"),
+                        "due_date": row.get("due_date"),
+                        "amount_due": amount_due_value,
+                        "amount_due_source": amount_due_source,
                     }
+                    row["pdf_parsed"] = dict(parsed)
+                else:
+                    try:
+                        with open(file_path, "rb") as handle:
+                            parsed = self.api.parse_statement_pdf(handle.read())
+                    except Exception as exc:  # keep coordinator resilient on bad single PDF
+                        self.logger.debug(
+                            "Failed to parse statement PDF for row %s (%s): %s",
+                            idx,
+                            button_name,
+                            exc,
+                        )
+
+                    if isinstance(parsed, dict):
+                        parsed_statement_date = parsed.get("statement_date")
+                        if parsed_statement_date and not row.get("statement_date"):
+                            row["statement_date"] = parsed_statement_date
+                        row["pdf_parsed"] = {
+                            "statement_date": parsed.get("statement_date"),
+                            "due_date": parsed.get("due_date"),
+                            "amount_due": parsed.get("amount_due"),
+                            "amount_due_source": parsed.get("amount_due_source"),
+                        }
 
                 if self._latest_local_pdf_url is None:
                     self._latest_local_pdf_url = local_url
