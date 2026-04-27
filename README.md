@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=defria&repository=ejoburg-bridge&category=integration">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=Defria&repository=ejoburg-bridge&category=integration">
     <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS" />
   </a>
   <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=ejoburg_bridge">
@@ -41,7 +41,7 @@ Sample dashboard YAML:
 
 1. Open HACS.
 2. Go to `Custom repositories`.
-3. Add `https://github.com/defria/ejoburg-bridge` as type `Integration`.
+3. Add `https://github.com/Defria/ejoburg-bridge` as type `Integration`.
 4. Install `e-Joburg Bridge`.
 5. Restart Home Assistant.
 6. Go to `Settings -> Devices & Services -> Add Integration`.
