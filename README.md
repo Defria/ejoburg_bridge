@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="e-Joburg Bridge" width="160" />
+  <img src="https://raw.githubusercontent.com/Defria/ejoburg-bridge/main/assets/logo.png" alt="e-Joburg Bridge" width="160" />
 </p>
 
 <h1 align="center">e-Joburg Bridge</h1>
@@ -19,9 +19,9 @@
 
 ## Dashboard Preview
 
-![e-Joburg Dashboard Example](assets/ejoburg-dashboard-example.png)
+![e-Joburg Dashboard Example](https://raw.githubusercontent.com/Defria/ejoburg-bridge/main/assets/ejoburg-dashboard-example.png)
 
-![e-Joburg Tariffs Example](assets/ejoburg-tariffs-example.png)
+![e-Joburg Tariffs Example](https://raw.githubusercontent.com/Defria/ejoburg-bridge/main/assets/ejoburg-tariffs-example.png)
 
 Sample dashboard YAML:
 
