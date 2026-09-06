@@ -2,30 +2,42 @@
 
 from __future__ import annotations
 
-import os
-import json
 import csv
+import hashlib
+import json
+import os
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.components.http.auth import async_sign_path
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import EJoburgApi, EJoburgApiError
-from . import api_v2
+from . import statement_parser
+from .cache import is_valid_pdf, write_pdf_atomically
+from .coj_app_api import CoJAppApi
 from .const import (
+    BACKEND_AUTO,
+    BACKEND_MOBILE_API,
+    BACKEND_PORTAL,
     CONF_ACCOUNT_NUMBER,
+    CONF_APP_AUTH_PASSWORD,
+    CONF_BACKEND,
     CONF_BASE_URL,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
+    DATA_SOURCE_COJ_APP,
+    DATA_SOURCE_PORTAL,
     DEFAULT_VAT_RATE_PERCENT,
+    DOCUMENT_URL,
     DOMAIN,
     TARIFFS_APPROVED_PAGE,
     TARIFFS_ANNEXURE_FALLBACK_URL,
     TARIFFS_BOOKLET_FALLBACK_URL,
     TARIFFS_CONSOLIDATED_FALLBACK_URL,
 )
+from .portal_api import PortalApi, EJoburgApiError
 
 
 class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -34,13 +46,16 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         self.entry_id = entry_id
         self._entry_data = entry_data
-        self.api: EJoburgApi | None = None
-        self._pdf_dir = hass.config.path("www", "ejoburg_bridge", entry_id)
+        self.api: PortalApi | CoJAppApi | None = None
+        self._active_backend: str | None = None
+        self._cache_dir = hass.config.path("ejoburg_bridge", entry_id)
+        self._pdf_dir = os.path.join(self._cache_dir, "statements")
         self._latest_local_pdf_url: str | None = None
-        self._tariffs_json_path = os.path.join(self._pdf_dir, "tariffs_latest.json")
-        self._tariffs_csv_path = os.path.join(self._pdf_dir, "tariffs_latest.csv")
-        self._tariffs_csv_url = (
-            f"/local/ejoburg_bridge/{self.entry_id}/tariffs_latest.csv"
+        self._documents: dict[str, tuple[str, str, str]] = {}
+        self._tariffs_json_path = os.path.join(self._cache_dir, "tariffs_latest.json")
+        self._tariffs_csv_path = os.path.join(self._cache_dir, "tariffs_latest.csv")
+        self._tariffs_csv_url = DOCUMENT_URL.format(
+            entry_id=self.entry_id, document_id="tariffs.csv"
         )
         self._tariffs_data: dict[str, Any] | None = None
         self._bundled_tariffs_csv_path = os.path.join(
@@ -59,38 +74,145 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(minutes=entry_data[CONF_SCAN_INTERVAL]),
         )
 
+    def _credentials(self) -> tuple[str, str]:
+        """Return the username and password shared by every backend."""
+        return (
+            str(self._entry_data.get(CONF_USERNAME, "")),
+            str(self._entry_data.get(CONF_PASSWORD, "")),
+        )
+
+    def _backend_candidates(
+        self,
+    ) -> list[tuple[str, PortalApi | CoJAppApi, str, str]]:
+        """Return (backend, client, username, password) candidates in priority order."""
+        backend = self._entry_data.get(CONF_BACKEND, BACKEND_PORTAL)
+        portal_user, portal_pass = self._credentials()
+
+        def _mobile_candidate() -> tuple[str, CoJAppApi, str, str]:
+            return (
+                BACKEND_MOBILE_API,
+                CoJAppApi(
+                    app_auth_password=str(
+                        self._entry_data.get(CONF_APP_AUTH_PASSWORD, "")
+                    )
+                ),
+                portal_user,
+                portal_pass,
+            )
+
+        def _portal_candidate() -> tuple[str, PortalApi, str, str]:
+            return (BACKEND_PORTAL, PortalApi(self._entry_data[CONF_BASE_URL]), portal_user, portal_pass)
+
+        def _append_available(name: str) -> None:
+            if name == BACKEND_MOBILE_API:
+                if str(self._entry_data.get(CONF_APP_AUTH_PASSWORD, "")).strip():
+                    candidates.append(_mobile_candidate())
+            elif name == BACKEND_PORTAL:
+                candidates.append(_portal_candidate())
+
+        if backend == BACKEND_MOBILE_API:
+            candidates = []
+            _append_available(BACKEND_MOBILE_API)
+            return candidates
+
+        if backend == BACKEND_PORTAL:
+            return [_portal_candidate()]
+
+        # auto: prefer the last working backend; otherwise mobile first
+        # (the mobile API is always available, matching the app's own flow),
+        # with portal as the fallback for portal-only accounts.
+        order = [
+            self._active_backend,
+            BACKEND_MOBILE_API if self._active_backend == BACKEND_PORTAL else BACKEND_PORTAL,
+        ] if self._active_backend else [BACKEND_MOBILE_API, BACKEND_PORTAL]
+
+        candidates: list[tuple[str, PortalApi | CoJAppApi, str, str]] = []
+        for name in order:
+            _append_available(name)
+        return candidates
+
     async def async_login_and_prime(self) -> None:
         def _sync_init() -> None:
-            self.api = EJoburgApi(self._entry_data[CONF_BASE_URL])
-            self.api.login(
-                self._entry_data[CONF_USERNAME], self._entry_data[CONF_PASSWORD]
-            )
+            last_error: Exception | None = None
+            for name, client, username, password in self._backend_candidates():
+                try:
+                    client.login(username, password)
+                    client.get_statement_history(self._entry_data[CONF_ACCOUNT_NUMBER])
+                except EJoburgApiError as exc:
+                    last_error = exc
+                    self.logger.debug("Backend %s login failed: %s", name, exc)
+                    continue
+                self.api = client
+                self._active_backend = name
+                return
+            raise EJoburgApiError(
+                str(last_error) or "No usable backend for this account"
+            ) from last_error
 
         await self.hass.async_add_executor_job(_sync_init)
 
     async def _async_update_data(self) -> dict[str, Any]:
         def _sync_load() -> dict[str, Any]:
-            if self.api is None:
-                self.api = EJoburgApi(self._entry_data[CONF_BASE_URL])
+            last_error: Exception | None = None
+            for name, client, username, password in self._backend_candidates():
+                try:
+                    self.api = client
+                    client.login(username, password)
+                    statement_history = client.get_statement_history(
+                        self._entry_data[CONF_ACCOUNT_NUMBER]
+                    )
+                except EJoburgApiError as exc:
+                    last_error = exc
+                    self.api = None
+                    self.logger.debug("Backend %s failed: %s", name, exc)
+                    continue
+                self._active_backend = name
+                break
+            else:
+                raise EJoburgApiError(
+                    str(last_error) or "No usable backend for this account"
+                ) from last_error
 
-            self.api.login(
-                self._entry_data[CONF_USERNAME], self._entry_data[CONF_PASSWORD]
-            )
-
-            overview = self.api.get_account_overview()
-            payment_history = self.api.get_payment_history_summary()
-            statement_history = self.api.get_statement_history()
+            available_accounts = statement_history.get("accounts", [])
+            payment_history = {
+                "accounts": available_accounts,
+                "account_count": len(available_accounts),
+            }
 
             if self._use_v2:
                 panel_html = statement_history.get("panel_html") or ""
                 if panel_html:
-                    v2_rows = api_v2.parse_statement_list_rows(panel_html)
+                    v2_rows = statement_parser.parse_statement_list_rows(panel_html)
                     if v2_rows:
                         statement_history["rows"] = v2_rows
 
-            os.makedirs(self._pdf_dir, exist_ok=True)
-            self._ensure_tariffs_loaded_once()
             rows = statement_history.get("rows", [])
+            latest_row = next((row for row in rows if isinstance(row, dict)), {})
+            overview = {
+                "account_number_detected": statement_history.get(
+                    "account_number_selected"
+                ),
+                "statement_date": latest_row.get("statement_date"),
+                "due_date": latest_row.get("due_date"),
+                "outstanding_balance": latest_row.get("balance"),
+                "amount_due": latest_row.get("balance"),
+            }
+            if statement_history.get("total_due_amount") is not None:
+                overview["outstanding_balance"] = statement_history[
+                    "total_due_amount"
+                ]
+                overview["amount_due"] = statement_history["total_due_amount"]
+
+            os.makedirs(self._pdf_dir, mode=0o700, exist_ok=True)
+            self._ensure_tariffs_loaded_once()
+            documents: dict[str, tuple[str, str, str]] = {}
+            if os.path.isfile(self._tariffs_csv_path):
+                documents["tariffs.csv"] = (
+                    self._tariffs_csv_path,
+                    "text/csv",
+                    "ejoburg_tariffs.csv",
+                )
+            self._documents = documents
             latest_pdf_meta: dict[str, Any] | None = None
             self._latest_local_pdf_url = None
 
@@ -100,7 +222,6 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 cached = dict(row)
                 cached["download_available"] = False
-                cached["local_pdf_path"] = None
                 cached["local_pdf_url"] = None
                 cached_statement_rows.append(cached)
 
@@ -115,47 +236,49 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 bill_amount = row.get("bill_amount")
                 balance = row.get("balance")
                 idx = row.get("index")
-                idx_text = str(idx) if idx is not None else ""
-                amount_text = (
-                    f"{float(bill_amount):.2f}"
-                    if isinstance(bill_amount, (int, float))
-                    else ""
-                )
-                balance_text = (
-                    f"{float(balance):.2f}" if isinstance(balance, (int, float)) else ""
-                )
-                token_parts = [
-                    self._entry_data[CONF_ACCOUNT_NUMBER],
-                    idx_text,
-                    amount_text,
-                    balance_text,
+                identity_parts = [
+                    str(self._entry_data[CONF_ACCOUNT_NUMBER]),
+                    str(row.get("invoice_number") or ""),
+                    str(row.get("statement_date") or ""),
+                    str(row.get("due_date") or ""),
                 ]
-                safe_token = "_".join(
-                    part.replace(".", "-") for part in token_parts if part
-                )
-                file_name = (
-                    f"statement_{safe_token}.pdf"
-                    if safe_token
-                    else f"statement_{button_name}.pdf"
-                )
-                file_name = "".join(
-                    ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-                    for ch in file_name
-                )
-                file_path = os.path.join(self._pdf_dir, file_name)
-                local_url = f"/local/ejoburg_bridge/{self.entry_id}/{file_name}"
-
-                if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                    pdf_bytes = self.api.download_statement_pdf(
-                        button_name,
-                        form_fields=form_fields_dict,
+                if not any(identity_parts[1:]):
+                    identity_parts.extend(
+                        [str(idx or ""), str(bill_amount or ""), str(balance or "")]
                     )
-                    with open(file_path, "wb") as handle:
-                        handle.write(pdf_bytes)
+                document_id = hashlib.sha256(
+                    "|".join(identity_parts).encode("utf-8")
+                ).hexdigest()[:32]
+                file_name = f"statement_{document_id}.pdf"
+                file_path = os.path.join(self._pdf_dir, file_name)
+                local_url = DOCUMENT_URL.format(
+                    entry_id=self.entry_id, document_id=document_id
+                )
+
+                try:
+                    if not is_valid_pdf(file_path):
+                        pdf_bytes = self.api.download_statement_pdf(
+                            button_name,
+                            form_fields=form_fields_dict,
+                        )
+                        write_pdf_atomically(file_path, pdf_bytes)
+                except (EJoburgApiError, OSError, ValueError) as exc:
+                    row["download_error"] = str(exc)
+                    self.logger.warning(
+                        "Statement download failed for row %s: %s", idx, exc
+                    )
+                    continue
 
                 row["download_available"] = True
-                row["local_pdf_path"] = file_path
                 row["local_pdf_url"] = local_url
+                row["document_id"] = document_id
+                download_name = self._statement_download_name(row)
+                documents[document_id] = (
+                    file_path,
+                    "application/pdf",
+                    download_name,
+                )
+                self._documents = dict(documents)
 
                 parsed: dict[str, Any] | None = None
                 if self._use_v2:
@@ -206,13 +329,17 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._latest_local_pdf_url = local_url
                     latest_pdf_meta = {
                         "button_name": button_name,
-                        "local_pdf_path": file_path,
                         "local_pdf_url": local_url,
                         "parsed": parsed,
                     }
 
             return {
                 "account_number": self._entry_data[CONF_ACCOUNT_NUMBER],
+                "data_source": (
+                    DATA_SOURCE_COJ_APP
+                    if self._active_backend == BACKEND_MOBILE_API
+                    else DATA_SOURCE_PORTAL
+                ),
                 "overview": overview,
                 "payment_history": payment_history,
                 "statement_history": {
@@ -228,9 +355,49 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
 
         try:
-            return await self.hass.async_add_executor_job(_sync_load)
+            data = await self.hass.async_add_executor_job(_sync_load)
         except EJoburgApiError as exc:
             raise UpdateFailed(str(exc)) from exc
+
+        signature_lifetime = self.update_interval + timedelta(days=2)
+
+        def _signed(path: str | None) -> str | None:
+            if not path:
+                return None
+            return async_sign_path(
+                self.hass,
+                path,
+                signature_lifetime,
+                use_content_user=True,
+            )
+
+        rows = data.get("statement_history", {}).get("rows", [])
+        for row in rows:
+            if isinstance(row, dict):
+                row["local_pdf_url"] = _signed(row.get("local_pdf_url"))
+        latest = data.get("latest_statement")
+        if isinstance(latest, dict):
+            latest["local_pdf_url"] = _signed(latest.get("local_pdf_url"))
+        data["latest_local_pdf_url"] = _signed(data.get("latest_local_pdf_url"))
+        tariffs = data.get("tariffs")
+        if isinstance(tariffs, dict):
+            tariffs["local_csv_url"] = _signed(self._tariffs_csv_url)
+        return data
+
+    def _statement_download_name(self, row: dict[str, Any]) -> str:
+        account = "".join(
+            ch for ch in str(self._entry_data[CONF_ACCOUNT_NUMBER]) if ch.isdigit()
+        )
+        invoice = "".join(
+            ch for ch in str(row.get("invoice_number") or "") if ch.isalnum()
+        )
+        date = str(row.get("statement_date") or "").replace("/", "-")
+        suffix = invoice or date or str(row.get("index") or "statement")
+        return f"statement_{account}_{suffix}.pdf"
+
+    def get_document(self, document_id: str) -> tuple[str, str, str] | None:
+        """Return a registered document without exposing arbitrary paths."""
+        return self._documents.get(document_id)
 
     def _write_tariffs_csv(self, tariffs: dict[str, Any]) -> None:
         if not isinstance(tariffs, dict):
@@ -474,9 +641,9 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return tariffs
 
     def _download_and_parse_tariffs(self) -> dict[str, Any]:
-        page_bytes = EJoburgApi._fetch_external_bytes(TARIFFS_APPROVED_PAGE)
+        page_bytes = PortalApi._fetch_external_bytes(TARIFFS_APPROVED_PAGE)
         page_html = page_bytes.decode("utf-8", errors="replace")
-        pdf_links = EJoburgApi._extract_pdf_links_from_html(
+        pdf_links = PortalApi._extract_pdf_links_from_html(
             page_html, "https://joburg.org.za"
         )
 
@@ -493,8 +660,8 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             TARIFFS_ANNEXURE_FALLBACK_URL,
         )
 
-        booklet_bytes = EJoburgApi._fetch_external_bytes(booklet_url)
-        parsed_prepaid = EJoburgApi.parse_prepaid_tariffs_booklet(
+        booklet_bytes = PortalApi._fetch_external_bytes(booklet_url)
+        parsed_prepaid = PortalApi.parse_prepaid_tariffs_booklet(
             booklet_bytes,
             vat_rate_percent=DEFAULT_VAT_RATE_PERCENT,
         )
@@ -507,8 +674,8 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         postpaid_rows: list[dict[str, Any]] = []
         postpaid_parse_error: str | None = None
         try:
-            annexure_bytes = EJoburgApi._fetch_external_bytes(annexure_url)
-            parsed_postpaid = EJoburgApi.parse_postpaid_tariffs_annexure(
+            annexure_bytes = PortalApi._fetch_external_bytes(annexure_url)
+            parsed_postpaid = PortalApi.parse_postpaid_tariffs_annexure(
                 annexure_bytes,
                 vat_rate_percent=DEFAULT_VAT_RATE_PERCENT,
             )
@@ -550,6 +717,12 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(cached, dict):
             self._tariffs_data = cached
             return
+        if self._active_backend == BACKEND_MOBILE_API:
+            fallback = self._load_tariffs_from_bundled_csv()
+            if isinstance(fallback, dict):
+                self._tariffs_data = fallback
+                return
+            raise EJoburgApiError("Bundled tariff data is unavailable")
         try:
             self._tariffs_data = self._download_and_parse_tariffs()
             return
@@ -566,7 +739,13 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raise EJoburgApiError("Unable to load tariffs from remote source or fallback")
 
     def _sync_refresh_tariffs(self) -> None:
-        os.makedirs(self._pdf_dir, exist_ok=True)
+        os.makedirs(self._cache_dir, mode=0o700, exist_ok=True)
+        if self._active_backend == BACKEND_MOBILE_API:
+            fallback = self._load_tariffs_from_bundled_csv()
+            if isinstance(fallback, dict):
+                self._tariffs_data = fallback
+                return
+            raise EJoburgApiError("Bundled tariff data is unavailable")
         try:
             self._tariffs_data = self._download_and_parse_tariffs()
             return
@@ -586,6 +765,21 @@ class EJoburgCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_refresh_tariffs(self) -> None:
         await self.hass.async_add_executor_job(self._sync_refresh_tariffs)
+        if os.path.isfile(self._tariffs_csv_path):
+            self._documents["tariffs.csv"] = (
+                self._tariffs_csv_path,
+                "text/csv",
+                "ejoburg_tariffs.csv",
+            )
         updated = dict(self.data or {})
-        updated["tariffs"] = self._tariffs_data
+        tariffs = self._tariffs_data
+        if isinstance(tariffs, dict):
+            tariffs = dict(tariffs)
+            tariffs["local_csv_url"] = async_sign_path(
+                self.hass,
+                self._tariffs_csv_url,
+                self.update_interval + timedelta(days=2),
+                use_content_user=True,
+            )
+        updated["tariffs"] = tariffs
         self.async_set_updated_data(updated)

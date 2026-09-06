@@ -29,11 +29,30 @@ Sample dashboard YAML:
 
 ## What It Does
 
-- Logs in to `https://www.e-joburg.org.za` (JSF flow) and retrieves account data.
-- Fetches account overview, payment history summary, and statement history rows.
-- Downloads statement PDFs, caches them locally, and exposes local PDF links.
+- Uses either the first-party CoJ App or the legacy
+  `https://www.e-joburg.org.za` JSF flow.
+- Fetches statement history once per refresh and derives account summary metadata from it.
+- Downloads statement PDFs, caches them privately, and exposes authenticated PDF links.
 - Parses statement PDFs for key values (amount due, due date, statement date).
 - Exposes Home Assistant sensors/buttons for dashboard and automation use.
+
+The default `auto` data source tries the CoJ App first and transparently falls
+back to the portal when the CoJ App is not available for the account — so
+portal-only users keep working. The last working backend is remembered per
+entry and re-validated during setup.
+
+> **Same password, CoJ App username = email/mobile:** the CoJ App uses the
+> same **password** as the e-Joburg portal, but logs in with the **email
+> address or mobile number** registered on the CoJ App (not the portal
+> username). Find it in the e-Joburg portal under **Manage Personal
+> Information** (`/manage-personal-information`), and make sure the account has
+> been registered on the CoJ App at least once. Setup asks for a single CoJ App
+> username (email/mobile), password, and account number.
+
+In CoJ App mode, tariff data is read from the cached/bundled CSV rather than
+scraped from the tariff web page or parsed from remote tariff PDFs. The legacy
+`portal` backend remains available explicitly for installations that never
+onboard onto the CoJ App.
 
 ## Install
 

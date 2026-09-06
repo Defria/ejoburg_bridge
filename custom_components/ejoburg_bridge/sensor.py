@@ -185,6 +185,7 @@ class EJoburgSensor(CoordinatorEntity[EJoburgCoordinator], SensorEntity):
 
         return {
             "account_number": self._entry.data[CONF_ACCOUNT_NUMBER],
+            "data_source": data.get("data_source"),
             "financial": {
                 "display_amount_due": display_amount,
                 "display_amount_due_source": display_amount_source,

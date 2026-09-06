@@ -1,4 +1,9 @@
-"""e-Joburg API helper for Home Assistant integration."""
+"""e-Joburg web portal client and tariff parsing for the integration.
+
+The ``PortalApi`` authenticates against the JSF-based e-Joburg web portal and
+retrieves account, statement and tariff data. ``EJoburgApiError`` is the shared
+domain error used across every backend client in this integration.
+"""
 
 from __future__ import annotations
 
@@ -15,10 +20,11 @@ from pypdf import PdfReader
 
 
 class EJoburgApiError(Exception):
-    """Raised when API communication fails."""
+    """Raised when communication with a CoJ backend fails."""
 
 
-class EJoburgApi:
+class PortalApi:
+    """Client for the legacy e-Joburg JSF web portal."""
     def __init__(self, base_url: str, timeout: int = 60) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -1091,7 +1097,9 @@ class EJoburgApi:
             "account_count": len(account_values),
         }
 
-    def get_statement_history(self) -> dict[str, Any]:
+    def get_statement_history(
+        self, account_number: str | None = None
+    ) -> dict[str, Any]:
         html = self._request("GET", "/statement-history")
         if "historyForm" not in html:
             raise EJoburgApiError("Could not load statement history form")
@@ -1112,6 +1120,7 @@ class EJoburgApi:
                 "rows": [],
                 "form_fields": fields,
                 "account_number_selected": None,
+                "accounts": [],
             }
 
         select_name = select_match.group(1)
@@ -1121,13 +1130,29 @@ class EJoburgApi:
             select_match.group(2),
             re.IGNORECASE,
         )
-        selected_account = next((o for o in options if o.strip()), None)
+        available_accounts = [option.strip() for option in options if option.strip()]
+        requested_account = re.sub(r"\D", "", account_number or "")
+        selected_account = next(
+            (
+                option
+                for option in available_accounts
+                if re.sub(r"\D", "", option) == requested_account
+            ),
+            None,
+        )
+        if requested_account and selected_account is None:
+            raise EJoburgApiError(
+                "Configured account is not available in statement history"
+            )
+        if selected_account is None:
+            selected_account = next(iter(available_accounts), None)
         if not selected_account:
             return {
                 "view_state": view_state,
                 "rows": [],
                 "form_fields": fields,
                 "account_number_selected": None,
+                "accounts": available_accounts,
             }
 
         ajax_payload = [
@@ -1175,6 +1200,7 @@ class EJoburgApi:
             "rows": rows,
             "form_fields": merged_fields,
             "account_number_selected": selected_account,
+            "accounts": available_accounts,
             "panel_html": panel_html,
         }
 

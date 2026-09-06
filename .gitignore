@@ -11,3 +11,7 @@ venv/
 
 .idea/
 .vscode/
+
+# Local backups / work artifacts (not for the repository)
+backups/
+*.tar.gz

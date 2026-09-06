@@ -3,18 +3,47 @@
     "step": {
       "user": {
         "title": "e-Joburg Bridge",
-        "description": "Connect your e-Joburg account to Home Assistant",
+        "description": "Connect your City of Johannesburg account. The same username and password you use for the e-Joburg web portal works with the CoJ App too.",
         "data": {
-          "username": "Username",
-          "password": "Password",
+          "backend": "Data source",
+          "username": "CoJ App username (email or mobile number)",
+          "password": "CoJ App password",
+          "app_auth_password": "CoJ App client credential",
           "account_number": "Municipal account number",
-          "base_url": "Portal base URL",
+          "base_url": "Portal address",
           "scan_interval_minutes": "Refresh interval (minutes)"
+        },
+        "data_description": {
+          "backend": "Automatic uses the CoJ App when your credentials work there, and falls back to the portal otherwise. Both use the same username and password.",
+          "account_number": "Your municipal account number (shown on your statement).",
+          "app_auth_password": "Optional. The app-level client credential from the CoJ mobile app, used to reach the CoJ App data source. Leave blank to disable the CoJ App and use the portal only."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect. Check credentials or account details."
+      "cannot_connect": "Failed to connect. Check your username, password, or account number."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "e-Joburg Bridge",
+        "data": {
+          "backend": "Data source",
+          "username": "CoJ App username (email or mobile number)",
+          "password": "CoJ App password",
+          "app_auth_password": "CoJ App client credential",
+          "base_url": "Portal address",
+          "scan_interval_minutes": "Refresh interval (minutes)"
+        },
+        "data_description": {
+          "backend": "Automatic uses the CoJ App when your credentials work there, and falls back to the portal otherwise. Both use the same username and password.",
+          "app_auth_password": "Optional. The app-level client credential from the CoJ mobile app, used to reach the CoJ App data source. Leave blank to disable the CoJ App and use the portal only."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect. Check your username, password, or account number."
     }
   }
 }

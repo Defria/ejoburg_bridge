@@ -1,7 +1,7 @@
 """HTML-only statement metadata extraction (v2).
 
 This module is a non-breaking addition alongside :mod:`.api`. It produces
-the same dict shapes that :class:`.api.EJoburgApi` produces for statement
+the same dict shapes that :class:`.portal_api.PortalApi` produces for statement
 rows and per-statement metadata, but sources every field from structured
 HTML (the JSF statement-history list response and the ``/ViewBill`` page)
 rather than pypdf text extraction of the statement PDF body.
@@ -13,7 +13,7 @@ Behavior contract (vs v1):
   The first five match v1; ``invoice_number`` is added (v1 didn't expose it).
 * ``parse_view_bill_html()`` returns ``{statement_date, due_date,
   amount_due, amount_due_source, account_number}`` mirroring
-  ``EJoburgApi.parse_statement_pdf`` output keys actually consumed by the
+  ``PortalApi.parse_statement_pdf`` output keys actually consumed by the
   coordinator. ``amount_guess`` and ``text_excerpt`` are intentionally
   omitted; coordinator does not use them.
 * All dates are normalized to ``YYYY/MM/DD`` to match v1's preferred
@@ -213,7 +213,7 @@ def parse_view_bill_html(html: str) -> dict[str, Any]:
     """Parse the static ``/ViewBill`` HTML page.
 
     Returns a dict with the same keys the coordinator consumes from
-    :meth:`.api.EJoburgApi.parse_statement_pdf`: ``statement_date``,
+    :meth:`.portal_api.PortalApi.parse_statement_pdf`: ``statement_date``,
     ``due_date``, ``amount_due``, ``amount_due_source``,
     ``account_number``.
 

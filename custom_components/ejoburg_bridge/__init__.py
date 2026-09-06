@@ -12,6 +12,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import EJoburgCoordinator
+from .http import EJoburgDocumentView
 
 SERVICE_REFRESH = "refresh"
 SERVICE_REFRESH_TARIFFS = "refresh_tariffs"
@@ -19,6 +20,9 @@ SERVICE_REFRESH_TARIFFS = "refresh_tariffs"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    if not hass.data[DOMAIN].get("http_view_registered"):
+        hass.http.register_view(EJoburgDocumentView(hass))
+        hass.data[DOMAIN]["http_view_registered"] = True
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     merged_data = dict(entry.data)
